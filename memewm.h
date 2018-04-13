@@ -21,6 +21,8 @@ extern int memewm_current_window;
 extern int memewm_mouse_x;
 extern int memewm_mouse_y;
 
+void mememw_init(void);
+
 void memewm_window_plot_px(int, int, uint32_t, int);
 int memewm_window_create(char *, size_t, size_t, size_t, size_t);
 void memewm_window_focus(int);

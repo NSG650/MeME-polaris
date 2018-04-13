@@ -48,7 +48,7 @@ static cursor_t cursor = {
 #undef o
 
 static int TITLE_BAR_THICKNESS = 18;
-static uint32_t BACKGROUND_COLOUR = 0x00008888;
+static uint32_t BACKGROUND_COLOUR = 0x00008080;
 static uint32_t WINDOW_BORDERS = 0x00ffffff;
 static uint32_t TITLE_BAR_BACKG = 0x00003377;
 static uint32_t TITLE_BAR_FOREG = 0x00ffffff;
@@ -95,7 +95,7 @@ static void plot_char(char c, int x, int y, uint32_t hex_fg, uint32_t hex_bg) {
 static void put_mouse_cursor(void) {
     for (size_t x = 0; x < 16; x++) {
         for (size_t y = 0; y < 16; y++) {
-            if (cursor.bitmap[x * 16 + y])
+            if (cursor.bitmap[x * 16 + y] != -1)
                 plot_px(memewm_mouse_x + x, memewm_mouse_y + y, cursor.bitmap[x * 16 + y]);
         }
     }
@@ -123,7 +123,7 @@ static window_t *get_window_ptr(int id) {
 
 /* creates a new window with a title, size */
 /* returns window id */
-int memewm_create_window(char *title, size_t x, size_t y, size_t x_size, size_t y_size) {
+int memewm_window_create(char *title, size_t x, size_t y, size_t x_size, size_t y_size) {
     window_t *wptr;
     int id = 0;
 
@@ -229,6 +229,13 @@ void memewm_window_resize(int x_size, int y_size, int window) {
     wptr->framebuffer = memewm_malloc(wptr->x_size * wptr->y_size * sizeof(uint32_t));
 
     memewm_needs_refresh = 1;
+
+    return;
+}
+
+void memewm_init(void) {
+    antibuffer = memewm_malloc(memewm_screen_width * memewm_screen_height * sizeof(uint32_t));
+    prevbuffer = memewm_malloc(memewm_screen_width * memewm_screen_height * sizeof(uint32_t));
 
     return;
 }
