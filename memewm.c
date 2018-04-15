@@ -309,7 +309,7 @@ window_click_data_t memewm_window_click(int x, int y) {
 
     /* get number of nodes */
     size_t nodes;
-    for (nodes = 1; wptr->next; nodes++, wptr = wptr->next);
+    for (nodes = 0; wptr->next; nodes++, wptr = wptr->next);
 
     for (;; nodes--) {
         wptr = windows;
@@ -318,31 +318,29 @@ window_click_data_t memewm_window_click(int x, int y) {
 
         if (x >= wptr->x && x < wptr->x + wptr->x_size + 2 &&
             y >= wptr->y && y < wptr->y + wptr->y_size + 1 + TITLE_BAR_THICKNESS) {
-            int titlebar = 0;
-            int top_border = 0;
-            int bottom_border = 0;
-            int right_border = 0;
-            int left_border = 0;
             if (y - wptr->y < TITLE_BAR_THICKNESS
                 && y - wptr->y > 0 && y - wptr->y < wptr->y_size + TITLE_BAR_THICKNESS
                 && x - wptr->x > 0 && x - wptr->x < wptr->x_size)
-                titlebar = 1;
-            if (y - wptr->y == 0)
-                top_border = 1;
-            else if (y - wptr->y == wptr->y_size + TITLE_BAR_THICKNESS)
-                bottom_border = 1;
-            if (x - wptr->x == 0)
-                left_border = 1;
-            else if (x - wptr->x == wptr->x_size + 1)
-                right_border = 1;
+                ret.titlebar = 1;
+            else
+                ret.titlebar = 0;
+            if (y - wptr->y == 0) {
+                ret.top_border = 1;
+                ret.bottom_border = 0;
+            } else if (y - wptr->y == wptr->y_size + TITLE_BAR_THICKNESS) {
+                ret.bottom_border = 1;
+                ret.top_border = 0;
+            }
+            if (x - wptr->x == 0) {
+                ret.left_border = 1;
+                ret.right_border = 0;
+            } else if (x - wptr->x == wptr->x_size + 1) {
+                ret.right_border = 1;
+                ret.left_border = 0;
+            }
             ret.id = wptr->id;
-            ret.rel_x = x - (wptr->x - 1);
-            ret.rel_y = y - (wptr->y - TITLE_BAR_THICKNESS);
-            ret.titlebar = titlebar;
-            ret.top_border = top_border;
-            ret.bottom_border = bottom_border;
-            ret.right_border = right_border;
-            ret.left_border = left_border;
+            ret.rel_x = x - (wptr->x + 1);
+            ret.rel_y = y - (wptr->y + TITLE_BAR_THICKNESS);
             return ret;
         }
 
@@ -357,6 +355,8 @@ fail:
 
 void memewm_window_plot_px(int x, int y, uint32_t hex, int window) {
     window_t *wptr = get_window_ptr(window);
+    if (x >= wptr->x_size || y >= wptr->y_size || x < 0 || y < 0)
+        return;
     size_t fb_i = x + wptr->x_size * y;
     wptr->framebuffer[fb_i] = hex;
     memewm_needs_refresh = 1;
