@@ -7,6 +7,7 @@
 extern uint32_t *memewm_framebuffer;
 extern int memewm_screen_width;
 extern int memewm_screen_height;
+extern int memewm_screen_pitch;
 
 extern uint8_t *memewm_font_bitmap;
 extern int memewm_font_width;

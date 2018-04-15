@@ -68,7 +68,7 @@ static void plot_px(int x, int y, uint32_t hex) {
     if (x > memewm_screen_width || y > memewm_screen_height || x < 0 || y < 0)
         return;
 
-    size_t fb_i = x + memewm_screen_width * y;
+    size_t fb_i = x + (memewm_screen_pitch / sizeof(uint32_t)) * y;
 
     antibuffer[fb_i] = hex;
 
