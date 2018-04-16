@@ -5,7 +5,7 @@
 
 typedef struct window_t {
     int id;
-    char title[2048];
+    char *title;
     int x;
     int y;
     int x_size;
@@ -53,11 +53,22 @@ static uint32_t WINDOW_BORDERS = 0x00ffffff;
 static uint32_t TITLE_BAR_BACKG = 0x00003377;
 static uint32_t TITLE_BAR_FOREG = 0x00ffffff;
 
-int memewm_needs_refresh = 0;
-int memewm_current_window = -1;
+static int memewm_needs_refresh = 0;
+static int memewm_current_window = -1;
 
-int memewm_mouse_x = 0;
-int memewm_mouse_y = 0;
+static uint32_t *memewm_framebuffer;
+static int memewm_screen_width;
+static int memewm_screen_height;
+static int memewm_screen_pitch;
+
+static uint8_t *memewm_font_bitmap;
+static int memewm_font_width;
+static int memewm_font_height;
+
+static size_t memewm_fb_size;
+
+static int memewm_mouse_x = 0;
+static int memewm_mouse_y = 0;
 
 static int last_mouse_x = 0;
 static int last_mouse_y = 0;
@@ -66,6 +77,36 @@ static uint32_t *antibuffer;
 static uint32_t *prevbuffer;
 
 static window_t *windows = 0;
+
+static size_t memewm_strlen(const char *str) {
+    size_t len;
+
+    for (len = 0; str[len]; len++);
+
+    return len;
+}
+
+static char *memewm_strcpy(char *dest, const char *src) {
+    size_t i;
+
+    for (i = 0; src[i]; i++)
+        dest[i] = src[i];
+    dest[i] = 0;
+
+    return dest;
+}
+
+static void *memewm_alloc(size_t size) {
+    uint8_t *ptr = memewm_malloc(size);
+
+    if (!ptr)
+        return (void *)0;
+
+    for (size_t i = 0; i < size; i++)
+        ptr[i] = 0;
+
+    return (void *)ptr;
+}
 
 static void plot_px(int x, int y, uint32_t hex) {
     if (x >= memewm_screen_width || y >= memewm_screen_height || x < 0 || y < 0)
@@ -115,7 +156,7 @@ static void plot_char(char c, int x, int y, uint32_t hex_fg, uint32_t hex_bg) {
     return;
 }
 
-void memewm_update_cursor(void) {
+static void memewm_update_cursor(void) {
     for (size_t x = 0; x < 16; x++) {
         for (size_t y = 0; y < 16; y++) {
             if (cursor.bitmap[x * 16 + y] != -1) {
@@ -161,10 +202,20 @@ int memewm_window_create(char *title, size_t x, size_t y, size_t x_size, size_t 
     window_t *wptr;
     int id = 0;
 
+    uint32_t *fb = memewm_alloc(x_size * y_size * sizeof(uint32_t));
+    if (!fb)
+        return -1;
+
+    char *wtitle = memewm_alloc(memewm_strlen(title) + 1);
+    if (!title)
+        return -1;
+
     /* check if no windows were allocated */
     if (!windows) {
         /* allocate root window */
-        windows = memewm_malloc(sizeof(window_t));
+        windows = memewm_alloc(sizeof(window_t));
+        if (!windows)
+            return -1;
         wptr = windows;
     } else {
         /* else crawl the linked list to the last entry */
@@ -176,7 +227,9 @@ int memewm_window_create(char *title, size_t x, size_t y, size_t x_size, size_t 
                 wptr = wptr->next;
                 continue;
             } else {
-                wptr->next = memewm_malloc(sizeof(window_t));
+                wptr->next = memewm_alloc(sizeof(window_t));
+                if (!wptr->next)
+                    return -1;
                 wptr = wptr->next;
                 break;
             }
@@ -184,12 +237,13 @@ int memewm_window_create(char *title, size_t x, size_t y, size_t x_size, size_t 
     }
 
     wptr->id = id;
-    memewm_strcpy(wptr->title, title);
+    memewm_strcpy(wtitle, title);
+    wptr->title = wtitle;
     wptr->x = x;
     wptr->y = y;
     wptr->x_size = x_size;
     wptr->y_size = y_size;
-    wptr->framebuffer = memewm_malloc(x_size * y_size * sizeof(uint32_t));
+    wptr->framebuffer = fb;
     wptr->next = 0;
 
     memewm_current_window = id;
@@ -273,26 +327,39 @@ static uint32_t quick_get_px(int x, int y, int x_size, int y_size, uint32_t *fb)
     return fb[fb_i];
 }
 
-void memewm_window_resize(int x_size, int y_size, int window) {
+int memewm_window_resize(int x_size, int y_size, int window) {
     window_t *wptr = get_window_ptr(window);
+
+    int new_x_size;
+    int new_y_size;
+
+    if (wptr->x_size + x_size < 1) {
+        new_x_size = 1;
+    } else {
+        new_x_size = wptr->x_size + x_size;
+    }
+    if (wptr->y_size + y_size < 1) {
+        new_y_size = 1;
+    } else {
+        new_y_size = wptr->y_size + y_size;
+    }
+
+    uint32_t *fb = memewm_alloc(new_x_size * new_y_size * sizeof(uint32_t));
+    if (!fb)
+        return -1;
+
+    uint32_t *old_fb = wptr->framebuffer;
+    wptr->framebuffer = fb;
 
     int old_x_size = wptr->x_size;
     int old_y_size = wptr->y_size;
 
-    wptr->x_size += x_size;
-    wptr->y_size += y_size;
-
-    x_size = wptr->x_size;
-    y_size = wptr->y_size;
-
-    uint32_t *old_fb = wptr->framebuffer;
-    wptr->framebuffer = memewm_malloc(wptr->x_size * wptr->y_size * sizeof(uint32_t));
-
-    uint32_t *fb = wptr->framebuffer;
+    wptr->x_size = new_x_size;
+    wptr->y_size = new_y_size;
 
     for (size_t y = 0; y < old_y_size; y++) {
         for (size_t x = 0; x < old_x_size; x++) {
-            quick_plot_px(x, y, x_size, y_size, fb,
+            quick_plot_px(x, y, new_x_size, new_y_size, fb,
                 quick_get_px(x, y, old_x_size, old_y_size, old_fb));
         }
     }
@@ -301,25 +368,54 @@ void memewm_window_resize(int x_size, int y_size, int window) {
 
     memewm_needs_refresh = 1;
 
-    return;
+    return 0;
 }
 
-void memewm_init(void) {
-    antibuffer = memewm_malloc((memewm_screen_pitch * sizeof(uint32_t)) *
-                    memewm_screen_height * sizeof(uint32_t));
-    prevbuffer = memewm_malloc((memewm_screen_pitch * sizeof(uint32_t)) *
-                    memewm_screen_height * sizeof(uint32_t));
+int memewm_init(uint32_t *fb, int scrn_width, int scrn_height, int scrn_pitch,
+                uint8_t *fnt, int fnt_width, int fnt_height) {
+    memewm_framebuffer = fb;
+    memewm_screen_width = scrn_width;
+    memewm_screen_height = scrn_height;
+    memewm_screen_pitch = scrn_pitch;
+    memewm_font_bitmap = fnt;
+    memewm_font_width = fnt_width;
+    memewm_font_height = fnt_height;
 
-    return;
+    memewm_mouse_x = memewm_screen_width / 2;
+    memewm_mouse_y = memewm_screen_height / 2;
+
+    memewm_fb_size = (memewm_screen_pitch / sizeof(uint32_t)) * memewm_screen_height * sizeof(uint32_t);
+
+    antibuffer = memewm_alloc(memewm_fb_size);
+
+    if (!antibuffer)
+        return -1;
+
+    prevbuffer = memewm_alloc(memewm_fb_size);
+
+    if (!prevbuffer) {
+        memewm_free(antibuffer);
+        return -1;
+    }
+
+    memewm_needs_refresh = 1;
+    memewm_refresh();
+
+    return 0;
 }
 
 void memewm_refresh(void) {
+    if (!memewm_needs_refresh)
+        return;
+
+    memewm_needs_refresh = 0;
+
     uint32_t *tmpbufptr = prevbuffer;
     prevbuffer = antibuffer;
     antibuffer = tmpbufptr;
 
-    /* clear screen */
-    for (size_t i = 0; i < memewm_screen_width * memewm_screen_height; i++)
+    /* draw background */
+    for (size_t i = 0; i < memewm_fb_size / sizeof(uint32_t); i++)
         antibuffer[i] = BACKGROUND_COLOUR;
 
     /* draw every window */
@@ -334,9 +430,12 @@ void memewm_refresh(void) {
                 plot_px(wptr->x + i, wptr->y + x, TITLE_BAR_BACKG);
 
         /* draw the title */
-        for (size_t i = 0; wptr->title[i]; i++)
-            plot_char(wptr->title[i], wptr->x + 8 + i * 8, wptr->y + 1,
+        for (size_t i = 0; wptr->title[i]; i++) {
+            if ((wptr->x + memewm_font_width + (i + 1) * memewm_font_width) >= wptr->x + wptr->x_size)
+                break;
+            plot_char(wptr->title[i], wptr->x + memewm_font_width + i * memewm_font_width, wptr->y + 1,
                 TITLE_BAR_FOREG, TITLE_BAR_BACKG);
+        }
 
         /* draw the window border */
         for (size_t i = 0; i < wptr->x_size + 2; i++)
@@ -363,12 +462,63 @@ void memewm_refresh(void) {
     }
 
     /* copy over the buffer */
-    for (size_t i = 0; i < memewm_screen_width * memewm_screen_height; i++) {
+    for (size_t i = 0; i < memewm_fb_size / sizeof(uint32_t); i++) {
         if (antibuffer[i] != prevbuffer[i])
             memewm_framebuffer[i] = antibuffer[i];
     }
 
     memewm_update_cursor();
+
+    return;
+}
+
+void memewm_set_cursor_pos(int x, int y) {
+    if (memewm_mouse_x + x < 0) {
+        memewm_mouse_x = 0;
+    } else if (memewm_mouse_x + x >= memewm_screen_width) {
+        memewm_mouse_x = memewm_screen_width - 1;
+    } else {
+        memewm_mouse_x += x;
+    }
+
+    if (memewm_mouse_y + y < 0) {
+        memewm_mouse_y = 0;
+    } else if (memewm_mouse_y + y >= memewm_screen_height) {
+        memewm_mouse_y = memewm_screen_height - 1;
+    } else {
+        memewm_mouse_y += y;
+    }
+
+    memewm_update_cursor();
+
+    return;
+}
+
+void memewm_set_cursor_pos_abs(int x, int y) {
+    if (x < 0) {
+        memewm_mouse_x = 0;
+    } else if (x >= memewm_screen_width) {
+        memewm_mouse_x = memewm_screen_width - 1;
+    } else {
+        memewm_mouse_x = x;
+    }
+
+    if (y < 0) {
+        memewm_mouse_y = 0;
+    } else if (y >= memewm_screen_height) {
+        memewm_mouse_y = memewm_screen_height - 1;
+    } else {
+        memewm_mouse_y = y;
+    }
+
+    memewm_update_cursor();
+
+    return;
+}
+
+void memewm_get_cursor_pos(int *x, int *y) {
+    *x = memewm_mouse_x;
+    *y = memewm_mouse_y;
 
     return;
 }
@@ -428,8 +578,13 @@ fail:
 
 void memewm_window_plot_px(int x, int y, uint32_t hex, int window) {
     window_t *wptr = get_window_ptr(window);
+
+    if (!wptr)
+        return;
+
     if (x >= wptr->x_size || y >= wptr->y_size || x < 0 || y < 0)
         return;
+
     size_t fb_i = x + wptr->x_size * y;
     wptr->framebuffer[fb_i] = hex;
     memewm_needs_refresh = 1;
