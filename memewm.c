@@ -68,7 +68,7 @@ static uint32_t *prevbuffer;
 static window_t *windows = 0;
 
 static void plot_px(int x, int y, uint32_t hex) {
-    if (x > memewm_screen_width || y > memewm_screen_height || x < 0 || y < 0)
+    if (x >= memewm_screen_width || y >= memewm_screen_height || x < 0 || y < 0)
         return;
 
     size_t fb_i = x + (memewm_screen_pitch / sizeof(uint32_t)) * y;
@@ -79,7 +79,7 @@ static void plot_px(int x, int y, uint32_t hex) {
 }
 
 static void plot_px_direct(int x, int y, uint32_t hex) {
-    if (x > memewm_screen_width || y > memewm_screen_height || x < 0 || y < 0)
+    if (x >= memewm_screen_width || y >= memewm_screen_height || x < 0 || y < 0)
         return;
 
     size_t fb_i = x + (memewm_screen_pitch / sizeof(uint32_t)) * y;
@@ -90,7 +90,7 @@ static void plot_px_direct(int x, int y, uint32_t hex) {
 }
 
 static uint32_t get_px(int x, int y) {
-    if (x > memewm_screen_width || y > memewm_screen_height || x < 0 || y < 0)
+    if (x >= memewm_screen_width || y >= memewm_screen_height || x < 0 || y < 0)
         return 0;
 
     size_t fb_i = x + (memewm_screen_pitch / sizeof(uint32_t)) * y;
@@ -253,14 +253,51 @@ void memewm_window_move(int x, int y, int window) {
     return;
 }
 
+static void quick_plot_px(int x, int y, int x_size, int y_size, uint32_t *fb, uint32_t hex) {
+    if (x >= x_size || y >= y_size || x < 0 || y < 0)
+        return;
+
+    size_t fb_i = x + x_size * y;
+
+    fb[fb_i] = hex;
+
+    return;
+}
+
+static uint32_t quick_get_px(int x, int y, int x_size, int y_size, uint32_t *fb) {
+    if (x >= x_size || y >= y_size || x < 0 || y < 0)
+        return 0;
+
+    size_t fb_i = x + x_size * y;
+
+    return fb[fb_i];
+}
+
 void memewm_window_resize(int x_size, int y_size, int window) {
     window_t *wptr = get_window_ptr(window);
+
+    int old_x_size = wptr->x_size;
+    int old_y_size = wptr->y_size;
 
     wptr->x_size += x_size;
     wptr->y_size += y_size;
 
-    memewm_free(wptr->framebuffer);
+    x_size = wptr->x_size;
+    y_size = wptr->y_size;
+
+    uint32_t *old_fb = wptr->framebuffer;
     wptr->framebuffer = memewm_malloc(wptr->x_size * wptr->y_size * sizeof(uint32_t));
+
+    uint32_t *fb = wptr->framebuffer;
+
+    for (size_t y = 0; y < old_y_size; y++) {
+        for (size_t x = 0; x < old_x_size; x++) {
+            quick_plot_px(x, y, x_size, y_size, fb,
+                quick_get_px(x, y, old_x_size, old_y_size, old_fb));
+        }
+    }
+
+    memewm_free(old_fb);
 
     memewm_needs_refresh = 1;
 
