@@ -30,6 +30,7 @@ void memewm_window_move(int, int, int);
 void memewm_window_resize(int, int, int);
 window_click_data_t memewm_window_click(int, int);
 
+void memewm_update_cursor(void);
 void memewm_refresh(void);
 
 #endif

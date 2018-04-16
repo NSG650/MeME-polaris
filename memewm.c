@@ -59,6 +59,9 @@ int memewm_current_window = -1;
 int memewm_mouse_x = 0;
 int memewm_mouse_y = 0;
 
+static int last_mouse_x = 0;
+static int last_mouse_y = 0;
+
 static uint32_t *antibuffer;
 static uint32_t *prevbuffer;
 
@@ -73,6 +76,26 @@ static void plot_px(int x, int y, uint32_t hex) {
     antibuffer[fb_i] = hex;
 
     return;
+}
+
+static void plot_px_direct(int x, int y, uint32_t hex) {
+    if (x > memewm_screen_width || y > memewm_screen_height || x < 0 || y < 0)
+        return;
+
+    size_t fb_i = x + (memewm_screen_pitch / sizeof(uint32_t)) * y;
+
+    memewm_framebuffer[fb_i] = hex;
+
+    return;
+}
+
+static uint32_t get_px(int x, int y) {
+    if (x > memewm_screen_width || y > memewm_screen_height || x < 0 || y < 0)
+        return 0;
+
+    size_t fb_i = x + (memewm_screen_pitch / sizeof(uint32_t)) * y;
+
+    return antibuffer[fb_i];
 }
 
 static void plot_char(char c, int x, int y, uint32_t hex_fg, uint32_t hex_bg) {
@@ -92,13 +115,24 @@ static void plot_char(char c, int x, int y, uint32_t hex_fg, uint32_t hex_bg) {
     return;
 }
 
-static void put_mouse_cursor(void) {
+void memewm_update_cursor(void) {
     for (size_t x = 0; x < 16; x++) {
         for (size_t y = 0; y < 16; y++) {
-            if (cursor.bitmap[x * 16 + y] != -1)
-                plot_px(memewm_mouse_x + x, memewm_mouse_y + y, cursor.bitmap[x * 16 + y]);
+            if (cursor.bitmap[x * 16 + y] != -1) {
+                uint32_t px = get_px(last_mouse_x + x, last_mouse_y + y);
+                plot_px_direct(last_mouse_x + x, last_mouse_y + y, px);
+            }
         }
     }
+    for (size_t x = 0; x < 16; x++) {
+        for (size_t y = 0; y < 16; y++) {
+            if (cursor.bitmap[x * 16 + y] != -1) {
+                plot_px_direct(memewm_mouse_x + x, memewm_mouse_y + y, cursor.bitmap[x * 16 + y]);
+            }
+        }
+    }
+    last_mouse_x = memewm_mouse_x;
+    last_mouse_y = memewm_mouse_y;
     return;
 }
 
@@ -234,8 +268,10 @@ void memewm_window_resize(int x_size, int y_size, int window) {
 }
 
 void memewm_init(void) {
-    antibuffer = memewm_malloc(memewm_screen_width * memewm_screen_height * sizeof(uint32_t));
-    prevbuffer = memewm_malloc(memewm_screen_width * memewm_screen_height * sizeof(uint32_t));
+    antibuffer = memewm_malloc((memewm_screen_pitch * sizeof(uint32_t)) *
+                    memewm_screen_height * sizeof(uint32_t));
+    prevbuffer = memewm_malloc((memewm_screen_pitch * sizeof(uint32_t)) *
+                    memewm_screen_height * sizeof(uint32_t));
 
     return;
 }
@@ -289,13 +325,13 @@ void memewm_refresh(void) {
         wptr = wptr->next;
     }
 
-    put_mouse_cursor();
-
     /* copy over the buffer */
     for (size_t i = 0; i < memewm_screen_width * memewm_screen_height; i++) {
         if (antibuffer[i] != prevbuffer[i])
             memewm_framebuffer[i] = antibuffer[i];
     }
+
+    memewm_update_cursor();
 
     return;
 }
