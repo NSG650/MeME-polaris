@@ -1,0 +1,4 @@
+*.o
+*.elf
+qloader2
+image.hdd
