@@ -18,6 +18,17 @@
 	value;										\
 })
 
+#define PIT_FREQUENCY_HZ 1000
+
+static void init_pit(void) {
+    uint16_t x = 1193182 / PIT_FREQUENCY_HZ;
+    if ((1193182 % PIT_FREQUENCY_HZ) > (PIT_FREQUENCY_HZ / 2))
+        x++;
+
+    port_out_b(0x40, (uint8_t)(x & 0x00ff));
+    port_out_b(0x40, (uint8_t)((x & 0xff00) >> 8));
+}
+
 static void pic_set_mask(uint8_t line, int status) {
     uint16_t port;
     uint8_t value;
@@ -100,9 +111,18 @@ __attribute__((interrupt)) static void unhandled_interrupt(void *p) {
     );
 }
 
+static uint64_t ticks = 0;
+
 __attribute__((interrupt)) static void pit_handler(void *p) {
     (void)p;
-    port_out_b(0xe9, 'a');
+
+    ticks++;
+
+    // refresh wm at 30 hz
+    if (!(ticks % 30)) {
+        memewm_refresh();
+    }
+
     pic_eoi(0);
 }
 
@@ -171,6 +191,7 @@ void main(struct stivale_struct *stivale_struct) {
 
     asm volatile ("sti");
 
+    init_pit();
     pic_set_mask(0, 0);
 
     memewm_init(stivale_struct->framebuffer_addr,
@@ -186,7 +207,7 @@ void main(struct stivale_struct *stivale_struct) {
     memewm_window_create("test3", 70, 70, 800, 400);
     memewm_window_create("test4", 90, 90, 800, 400);
 
-    memewm_refresh();
-
-    for (;;);
+    for (;;) {
+        asm volatile ("hlt");
+    }
 }
