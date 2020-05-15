@@ -18,6 +18,8 @@
 	value;										\
 })
 
+static uint64_t ticks = 0;
+
 #define PIT_FREQUENCY_HZ 1000
 
 static void init_pit(void) {
@@ -73,6 +75,130 @@ static void pic_remap(uint8_t pic0_offset, uint8_t pic1_offset) {
     port_out_b(0xa1, 0xff);
 }
 
+// mouse code partly (mostly) taken from https://forum.osdev.org/viewtopic.php?t=10247
+
+static inline void mouse_wait(int type) {
+    int timeout = 100000;
+
+    if (type == 0) {
+        while (timeout--) {
+            if (port_in_b(0x64) & (1 << 0)) {
+                return;
+            }
+        }
+    } else {
+        while (timeout--) {
+            if (!(port_in_b(0x64) & (1 << 1))) {
+                return;
+            }
+        }
+    }
+}
+
+static inline void mouse_write(uint8_t val) {
+    mouse_wait(1);
+    port_out_b(0x64, 0xd4);
+    mouse_wait(1);
+    port_out_b(0x60, val);
+}
+
+static inline uint8_t mouse_read(void) {
+    mouse_wait(0);
+    return port_in_b(0x60);
+}
+
+static void init_mouse(void) {
+    mouse_wait(1);
+    port_out_b(0x64, 0xa8);
+
+    mouse_wait(1);
+    port_out_b(0x64, 0x20);
+    uint8_t status = mouse_read();
+    mouse_read();
+    status |= (1 << 1);
+    status &= ~(1 << 5);
+    mouse_wait(1);
+    port_out_b(0x64, 0x60);
+    mouse_wait(1);
+    port_out_b(0x60, status);
+    mouse_read();
+
+    mouse_write(0xff);
+    mouse_read();
+
+    mouse_write(0xf6);
+    mouse_read();
+
+    mouse_write(0xf4);
+    mouse_read();
+}
+
+typedef struct {
+    uint8_t flags;
+    uint8_t x_mov;
+    uint8_t y_mov;
+} mouse_packet_t;
+
+static int handler_cycle = 0;
+static mouse_packet_t current_packet;
+static int discard_packet = 0;
+
+__attribute__((interrupt)) static void mouse_handler(void *p) {
+    (void)p;
+
+    // we will get some spurious packets at the beginning and they will fuck
+    // up the alignment of the handler cycle so just ignore everything in
+    // the first 250 milliseconds after boot
+    if (ticks < 250) {
+        port_in_b(0x60);
+        goto out;
+    }
+
+    switch (handler_cycle) {
+        case 0:
+            current_packet.flags = port_in_b(0x60);
+            handler_cycle++;
+            if (current_packet.flags & (1 << 6) || current_packet.flags & (1 << 7))
+                discard_packet = 1;     // discard rest of packet
+            if (!(current_packet.flags & (1 << 3)))
+                discard_packet = 1;     // discard rest of packet
+            break;
+        case 1:
+            current_packet.x_mov = port_in_b(0x60);
+            handler_cycle++;
+            break;
+        case 2: {
+            current_packet.y_mov = port_in_b(0x60);
+            handler_cycle = 0;
+
+            if (discard_packet) {
+                discard_packet = 0;
+                break;
+            }
+
+            // process packet
+            int64_t x_mov, y_mov;
+
+            if (current_packet.flags & (1 << 4)) {
+                x_mov = (int8_t)current_packet.x_mov;
+            } else
+                x_mov = current_packet.x_mov;
+
+            if (current_packet.flags & (1 << 5)) {
+                y_mov = (int8_t)current_packet.y_mov;
+            } else
+                y_mov = current_packet.y_mov;
+
+            memewm_set_cursor_pos(x_mov, -y_mov);
+
+            break;
+        }
+    }
+
+out:
+    pic_eoi(12);
+}
+
 struct idt_entry_t {
     uint16_t offset_lo;
     uint16_t selector;
@@ -111,15 +237,13 @@ __attribute__((interrupt)) static void unhandled_interrupt(void *p) {
     );
 }
 
-static uint64_t ticks = 0;
-
 __attribute__((interrupt)) static void pit_handler(void *p) {
     (void)p;
 
     ticks++;
 
     // refresh wm at 30 hz
-    if (!(ticks % 30)) {
+    if (!(ticks % (PIT_FREQUENCY_HZ / 30))) {
         memewm_refresh();
     }
 
@@ -130,7 +254,8 @@ static void init_idt(void) {
     for (size_t i = 0; i < 256; i++)
         register_interrupt_handler(i, unhandled_interrupt, 0, 0x8e);
 
-    register_interrupt_handler(0x20, pit_handler, 0, 0x8e);
+    register_interrupt_handler(0x20 + 0 , pit_handler,   0, 0x8e);
+    register_interrupt_handler(0x20 + 12, mouse_handler, 0, 0x8e);
 
     struct idt_ptr_t idt_ptr = {
         sizeof(idt) - 1,
@@ -189,10 +314,14 @@ void main(struct stivale_struct *stivale_struct) {
     pic_remap(0x20, 0x28);
     init_idt();
 
-    asm volatile ("sti");
+    // enable cascade
+    pic_set_mask(2, 0);
 
     init_pit();
     pic_set_mask(0, 0);
+
+    init_mouse();
+    pic_set_mask(12, 0);
 
     memewm_init(stivale_struct->framebuffer_addr,
                 stivale_struct->framebuffer_width,
@@ -207,6 +336,7 @@ void main(struct stivale_struct *stivale_struct) {
     memewm_window_create("test3", 70, 70, 800, 400);
     memewm_window_create("test4", 90, 90, 800, 400);
 
+    asm volatile ("sti");
     for (;;) {
         asm volatile ("hlt");
     }
