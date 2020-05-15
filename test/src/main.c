@@ -41,12 +41,14 @@ void memewm_free(void *ptr) {
     (void)ptr;
 }
 
+extern uint8_t font[];
+
 void main(struct stivale_struct *stivale_struct) {
     memewm_init(stivale_struct->framebuffer_addr,
                 stivale_struct->framebuffer_width,
                 stivale_struct->framebuffer_height,
                 stivale_struct->framebuffer_pitch,
-                NULL,
+                font,
                 8,
                 16);
 

@@ -12,3 +12,9 @@ section .bss
 stack:
     resb 4096
   .top:
+
+section .rodata
+
+global font
+font:
+    incbin 'src/bitmap_font.fnt'
