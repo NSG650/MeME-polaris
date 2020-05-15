@@ -67,7 +67,7 @@ kernel.elf: $(OBJ)
 	nasm $< -f elf64 -o $@
 
 run: image.hdd
-	qemu-system-x86_64 -net none -enable-kvm -cpu host -m 2G -hda image.hdd
+	qemu-system-x86_64 -net none -enable-kvm -cpu host -m 2G -hda image.hdd -debugcon stdio
 
 clean:
 	rm -f $(OBJ) $(BINS) kernel.elf

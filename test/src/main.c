@@ -2,6 +2,128 @@
 #include <stddef.h>
 #include <memewm/memewm.h>
 
+#define port_out_b(port, value) ({				\
+	asm volatile (	"out dx, al"				\
+					:							\
+					: "a" (value), "d" (port)	\
+					: );						\
+})
+
+#define port_in_b(port) ({						\
+	uint8_t value;								\
+	asm volatile (	"in al, dx"					\
+					: "=a" (value)				\
+					: "d" (port)				\
+					: );						\
+	value;										\
+})
+
+static void pic_set_mask(uint8_t line, int status) {
+    uint16_t port;
+    uint8_t value;
+
+    if (line < 8) {
+        port = 0x21;
+    } else {
+        port = 0xa1;
+        line -= 8;
+    }
+
+    if (!status)
+        value = port_in_b(port) & ~((uint8_t)1 << line);
+    else
+        value = port_in_b(port) | ((uint8_t)1 << line);
+
+    port_out_b(port, value);
+}
+
+static void pic_eoi(uint8_t current_vector) {
+    if (current_vector >= 8) {
+        port_out_b(0xa0, 0x20);
+    }
+
+    port_out_b(0x20, 0x20);
+}
+
+static void pic_remap(uint8_t pic0_offset, uint8_t pic1_offset) {
+    port_out_b(0x20, 0x11);
+    port_out_b(0xa0, 0x11);
+
+    port_out_b(0x21, pic0_offset);
+    port_out_b(0xa1, pic1_offset);
+
+    port_out_b(0x21, 4);
+    port_out_b(0xa1, 2);
+
+    port_out_b(0x21, 1);
+    port_out_b(0xa1, 1);
+
+    port_out_b(0x21, 0xff);
+    port_out_b(0xa1, 0xff);
+}
+
+struct idt_entry_t {
+    uint16_t offset_lo;
+    uint16_t selector;
+    uint8_t  ist;
+    uint8_t  type_attr;
+    uint16_t offset_mid;
+    uint32_t offset_hi;
+    uint32_t zero;
+} __attribute__((packed));
+
+struct idt_ptr_t {
+    uint16_t size;
+    uint64_t address;
+} __attribute__((packed));
+
+static struct idt_entry_t idt[256] = {0};
+
+static void register_interrupt_handler(size_t vec, void *handler, uint8_t ist, uint8_t type) {
+    uint64_t p = (uint64_t)handler;
+
+    idt[vec].offset_lo  = (uint16_t)p;
+    idt[vec].selector   = 0x28;
+    idt[vec].ist        = ist;
+    idt[vec].type_attr  = type;
+    idt[vec].offset_mid = (uint16_t)(p >> 16);
+    idt[vec].offset_hi  = (uint32_t)(p >> 32);
+    idt[vec].zero       = 0;
+}
+
+__attribute__((interrupt)) static void unhandled_interrupt(void *p) {
+    (void)p;
+    asm volatile (
+        "cli\n\t"
+        "1: hlt\n\t"
+        "jmp 1b\n\t"
+    );
+}
+
+__attribute__((interrupt)) static void pit_handler(void *p) {
+    (void)p;
+    port_out_b(0xe9, 'a');
+    pic_eoi(0);
+}
+
+static void init_idt(void) {
+    for (size_t i = 0; i < 256; i++)
+        register_interrupt_handler(i, unhandled_interrupt, 0, 0x8e);
+
+    register_interrupt_handler(0x20, pit_handler, 0, 0x8e);
+
+    struct idt_ptr_t idt_ptr = {
+        sizeof(idt) - 1,
+        (uint64_t)idt
+    };
+
+    asm volatile (
+        "lidt %0"
+        :
+        : "m" (idt_ptr)
+    );
+}
+
 struct stivale_struct {
     uint64_t  cmdline;
     uint64_t  memory_map_addr;
@@ -21,7 +143,7 @@ struct stivale_struct {
 static size_t bump_allocator_base = 0x1000000;
 
 // Only power of 2 alignments
-void *balloc_aligned(size_t count, size_t alignment) {
+static void *balloc_aligned(size_t count, size_t alignment) {
     size_t new_base = bump_allocator_base;
     if (new_base & (alignment - 1)) {
         new_base &= ~(alignment - 1);
@@ -44,6 +166,13 @@ void memewm_free(void *ptr) {
 extern uint8_t font[];
 
 void main(struct stivale_struct *stivale_struct) {
+    pic_remap(0x20, 0x28);
+    init_idt();
+
+    asm volatile ("sti");
+
+    pic_set_mask(0, 0);
+
     memewm_init(stivale_struct->framebuffer_addr,
                 stivale_struct->framebuffer_width,
                 stivale_struct->framebuffer_height,
@@ -52,7 +181,10 @@ void main(struct stivale_struct *stivale_struct) {
                 8,
                 16);
 
-    memewm_window_create("test", 30, 30, 800, 400);
+    memewm_window_create("test1", 30, 30, 800, 400);
+    memewm_window_create("test2", 50, 50, 800, 400);
+    memewm_window_create("test3", 70, 70, 800, 400);
+    memewm_window_create("test4", 90, 90, 800, 400);
 
     memewm_refresh();
 
