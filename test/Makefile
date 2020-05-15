@@ -12,8 +12,8 @@ $(error No suitable x86_64 GCC compiler found, please install an x86_64-elf-gcc 
 endif
 endif
 
-C_FILES = $(shell find src -type f -name '*.c')
-ASM_FILES = $(shell find src -type f -name '*.asm')
+C_FILES = $(shell find -L src -type f -name '*.c')
+ASM_FILES = $(shell find -L src -type f -name '*.asm')
 OBJ = $(C_FILES:.c=.o) $(ASM_FILES:.asm=.o)
 
 CHARDFLAGS := \
@@ -28,7 +28,7 @@ CHARDFLAGS := \
     -mcmodel=kernel \
     -ffreestanding \
     -fno-stack-protector \
-    -I./include/
+    -I./src/
 
 ifeq ($(DEBUG), qemu)
 CHARDFLAGS := $(CHARDFLAGS) -D_KERNEL_QEMU_OUTPUT_
