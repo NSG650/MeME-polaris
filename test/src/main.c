@@ -189,7 +189,52 @@ __attribute__((interrupt)) static void mouse_handler(void *p) {
             } else
                 y_mov = current_packet.y_mov;
 
+            int last_x, last_y, new_x, new_y;
+
+            memewm_get_cursor_pos(&last_x, &last_y);
+            window_click_data_t last_click_data = memewm_window_click(last_x, last_y);
+
             memewm_set_cursor_pos(x_mov, -y_mov);
+
+            if (!(current_packet.flags & (1 << 0)))
+                break;
+
+            memewm_get_cursor_pos(&new_x, &new_y);
+
+            int id = last_click_data.id;
+
+            if (last_click_data.top_border) {
+                memewm_window_focus(id);
+                memewm_window_resize(0, -(new_y - last_y), id);
+                memewm_window_move(0, new_y - last_y, id);
+            }
+
+            if (last_click_data.bottom_border) {
+                memewm_window_focus(id);
+                memewm_window_resize(0, new_y - last_y, id);
+            }
+
+            if (last_click_data.left_border) {
+                memewm_window_focus(id);
+                memewm_window_resize(-(new_x - last_x), 0, id);
+                memewm_window_move(new_x - last_x, 0, id);
+            }
+
+            if (last_click_data.right_border) {
+                memewm_window_focus(id);
+                memewm_window_resize(new_x - last_x, 0, id);
+            }
+
+            if (last_click_data.titlebar) {
+                memewm_window_focus(id);
+                memewm_window_move(new_x - last_x, new_y - last_y, id);
+            }
+
+            if (last_click_data.rel_x != -1 && last_click_data.rel_y != -1) {
+                memewm_window_focus(id);
+                memewm_window_plot_px(last_click_data.rel_x, last_click_data.rel_y,
+                                      0xffffff, id);
+            }
 
             break;
         }

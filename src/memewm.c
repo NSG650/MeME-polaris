@@ -541,29 +541,39 @@ window_click_data_t memewm_window_click(int x, int y) {
 
         if (x >= wptr->x && x < wptr->x + wptr->x_size + 2 &&
             y >= wptr->y && y < wptr->y + wptr->y_size + 1 + TITLE_BAR_THICKNESS) {
+            int in_canvas = 1;
+            ret.id = wptr->id;
+            ret.rel_x = ret.rel_y = -1;
             if (y - wptr->y < TITLE_BAR_THICKNESS
                 && y - wptr->y > 0 && y - wptr->y < wptr->y_size + TITLE_BAR_THICKNESS
-                && x - wptr->x > 0 && x - wptr->x < wptr->x_size)
+                && x - wptr->x > 0 && x - wptr->x < wptr->x_size) {
+                in_canvas = 0;
                 ret.titlebar = 1;
-            else
+            } else {
                 ret.titlebar = 0;
+            }
             if (y - wptr->y == 0) {
+                in_canvas = 0;
                 ret.top_border = 1;
                 ret.bottom_border = 0;
             } else if (y - wptr->y == wptr->y_size + TITLE_BAR_THICKNESS) {
+                in_canvas = 0;
                 ret.bottom_border = 1;
                 ret.top_border = 0;
             }
             if (x - wptr->x == 0) {
+                in_canvas = 0;
                 ret.left_border = 1;
                 ret.right_border = 0;
             } else if (x - wptr->x == wptr->x_size + 1) {
+                in_canvas = 0;
                 ret.right_border = 1;
                 ret.left_border = 0;
             }
-            ret.id = wptr->id;
-            ret.rel_x = x - (wptr->x + 1);
-            ret.rel_y = y - (wptr->y + TITLE_BAR_THICKNESS);
+            if (in_canvas) {
+                ret.rel_x = x - (wptr->x + 1);
+                ret.rel_y = y - (wptr->y + TITLE_BAR_THICKNESS);
+            }
             return ret;
         }
 
