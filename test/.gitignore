@@ -1,4 +1,4 @@
 *.o
 *.elf
-qloader2
+limine
 image.hdd
