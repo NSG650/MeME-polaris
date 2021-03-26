@@ -45,18 +45,20 @@ CFLAGS = -Wall -Wextra -O2
 
 .PHONY: clean run
 
+all: image.hdd
+
 image.hdd: kernel.elf
-	[ -d limine ] || git clone https://github.com/limine-bootloader/limine.git --branch=v0.6.3 --depth=1
-	make -C limine limine-install
+	[ -d limine ] || git clone https://github.com/limine-bootloader/limine.git --branch=v2.0-branch-binary --depth=1
+	make -C limine
 	rm -f $@
 	dd if=/dev/zero bs=1M count=0 seek=64 of=$@
 	parted -s $@ mklabel gpt
-	parted -s $@ mkpart primary 2048s 6143s
-	parted -s $@ mkpart primary 6144s 131038s
-	echfs-utils -g -p1 $@ quick-format 512
-	echfs-utils -g -p1 $@ import kernel.elf boot/kernel.elf
-	echfs-utils -g -p1 $@ import limine.cfg boot/limine.cfg
-	limine/limine-install limine/limine.bin $@ 2048
+	parted -s $@ mkpart primary 2048s 100%
+	echfs-utils -g -p0 $@ quick-format 512
+	echfs-utils -g -p0 $@ import kernel.elf boot/kernel.elf
+	echfs-utils -g -p0 $@ import limine.cfg boot/limine.cfg
+	echfs-utils -g -p0 $@ import limine/limine.sys boot/limine.sys
+	limine/limine-install $@
 
 kernel.elf: $(OBJ)
 	$(CC) $(OBJ) $(CLINKFLAGS) -o $@
