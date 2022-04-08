@@ -1,4 +1,6 @@
 *.o
+*.d
 *.elf
+src/limine.h
 limine
 image.hdd

@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <memewm/memewm.h>
+#include <limine.h>
 
 #define port_out_b(port, value) ({				\
 	asm volatile (	"out dx, al"				\
@@ -314,22 +315,6 @@ static void init_idt(void) {
     );
 }
 
-struct stivale_struct {
-    uint64_t  cmdline;
-    uint64_t  memory_map_addr;
-    uint64_t  memory_map_entries;
-    uint32_t *framebuffer_addr;
-    uint16_t  framebuffer_pitch;
-    uint16_t  framebuffer_width;
-    uint16_t  framebuffer_height;
-    uint16_t  framebuffer_bpp;
-    uint64_t  rsdp;
-    uint64_t  module_count;
-    uint64_t  modules;
-    uint64_t  epoch;
-    uint64_t  flags;       // bit 0: 1 if booted with BIOS, 0 if booted with UEFI
-} __attribute__((packed));
-
 static size_t bump_allocator_base = 0x1000000;
 
 // Only power of 2 alignments
@@ -355,7 +340,12 @@ void memewm_free(void *ptr) {
 
 extern uint8_t font[];
 
-void main(struct stivale_struct *stivale_struct) {
+static volatile struct limine_framebuffer_request fb_req = {
+    .id = LIMINE_FRAMEBUFFER_REQUEST,
+    .revision = 0
+};
+
+void _start(void) {
     pic_remap(0x20, 0x28);
     init_idt();
 
@@ -368,10 +358,12 @@ void main(struct stivale_struct *stivale_struct) {
     init_mouse();
     pic_set_mask(12, 0);
 
-    memewm_init(stivale_struct->framebuffer_addr,
-                stivale_struct->framebuffer_width,
-                stivale_struct->framebuffer_height,
-                stivale_struct->framebuffer_pitch,
+    struct limine_framebuffer *fb = fb_req.response->framebuffers[0];
+
+    memewm_init(fb->address,
+                fb->width,
+                fb->height,
+                fb->pitch,
                 font,
                 8,
                 16);

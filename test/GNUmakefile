@@ -1,20 +1,25 @@
 DEBUG = off
 
-override SYSTEM_CC_TARGET := $(shell gcc -dumpmachine | head -c 6)
-ifeq ($(SYSTEM_CC_TARGET), x86_64)
-CC := gcc
-else
-override SYSTEM_CC_TARGET := $(shell x86_64-elf-gcc -dumpmachine | head -c 6)
-ifeq ($(SYSTEM_CC_TARGET), x86_64)
-CC := x86_64-elf-gcc
-else
-$(error No suitable x86_64 GCC compiler found, please install an x86_64-elf-gcc toolchain)
-endif
-endif
+define DEFAULT_VAR =
+    ifeq ($(origin $1), default)
+        override $(1) := $(2)
+    endif
+    ifeq ($(origin $1), undefined)
+        override $(1) := $(2)
+    endif
+endef
+
+$(eval $(call DEFAULT_VAR,CC,cc))
+$(eval $(call DEFAULT_VAR,LD,ld))
+
+CFLAGS ?= -O2 -g -Wall -Wextra -pipe
+
+LDFLAGS ?=
 
 override C_FILES := $(shell find -L src -type f -name '*.c')
 override ASM_FILES := $(shell find -L src -type f -name '*.asm')
 override OBJ := $(C_FILES:.c=.o) $(ASM_FILES:.asm=.o)
+override HEADER_DEPS := $(C_FILES:.c=.d)
 
 override CHARDFLAGS := \
     -std=gnu99 \
@@ -28,23 +33,26 @@ override CHARDFLAGS := \
     -mcmodel=kernel \
     -ffreestanding \
     -fno-stack-protector \
+    -MMD \
     -I./src/
 
 ifeq ($(DEBUG), qemu)
-override CHARDFLAGS += -D_KERNEL_QEMU_OUTPUT_
+	override CHARDFLAGS += -D_KERNEL_QEMU_OUTPUT_
 else ifeq ($(DEBUG), vga)
-override CHARDFLAGS += -D_KERNEL_VGA_OUTPUT_
+	override CHARDFLAGS += -D_KERNEL_VGA_OUTPUT_
 endif
 
-override CLINKFLAGS := \
-    -nostdlib \
-    -no-pie \
-    -T ./linker.ld
-
-CFLAGS = -Wall -Wextra -O2
+override CLINKFLAGS :=    \
+	-Tlinker.ld            \
+	-nostdlib              \
+	-zmax-page-size=0x1000 \
+	-static
 
 .PHONY: all
 all: image.hdd
+
+src/limine.h:
+	curl https://raw.githubusercontent.com/limine-bootloader/limine/trunk/limine.h -o $@
 
 image.hdd: kernel.elf
 	[ -d limine ] || git clone https://github.com/limine-bootloader/limine.git --branch=v3.0-branch-binary --depth=1
@@ -60,9 +68,10 @@ image.hdd: kernel.elf
 	limine/limine-deploy $@
 
 kernel.elf: $(OBJ)
-	$(CC) $(OBJ) $(CLINKFLAGS) -o $@
+	$(LD) $(OBJ) $(LDFLAGS) $(CLINKFLAGS) -o $@
 
-%.o: %.c
+-include $(HEADER_DEPS)
+%.o: %.c src/limine.h
 	$(CC) $(CFLAGS) $(CHARDFLAGS) -c $< -o $@
 
 %.o: %.asm
