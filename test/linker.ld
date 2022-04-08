@@ -1,7 +1,7 @@
 ENTRY(main)
 
 SECTIONS {
-    . = 0xffffffff80100000;
+    . = 0xffffffff80200000;
 
     .stivalehdr : ALIGN(4K) {
         *(.stivalehdr)
