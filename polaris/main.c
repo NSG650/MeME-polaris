@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <time.h>
 
+#include <linux/fb.h>
+
 #include "../src/memewm.h"
 
 uint8_t font[];
@@ -29,42 +31,11 @@ struct mouse_packet {
 	uint8_t y_mov;
 };
 
-struct fbdev_info {
-	size_t pitch, bpp;
-	uint16_t width, height;
-};
-
-struct fbdev_info framebuffer_info = {0};
-
-void raw_nanosleep(void *a, void *b) {
-	ssize_t ret;
-	asm volatile("syscall"
-				 : "=a"(ret)
-				 : "0"(0x23), "D"(a), "S"(b)
-				 : "rcx", "r11", "memory");
-}
-
-/* msleep(): Sleep for the requested number of milliseconds. */
-int msleep(long msec) {
-	struct timespec ts;
-	int res;
-
-	if (msec < 0) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	ts.tv_sec = msec / 1000;
-	ts.tv_nsec = (msec % 1000) * 1000;
-
-	raw_nanosleep(&ts, &ts);
-
-	return res;
-}
-
 int main(void) {
 	printf("MEME :^)\n");
 	struct mouse_packet mouse_pack = {0};
+	struct fb_fix_screeninfo fix = {0};
+	struct fb_var_screeninfo var = {0};
 
 	int mouse_fd = open("/dev/mouse", O_RDONLY);
 	if (mouse_fd == -1) {
@@ -74,29 +45,31 @@ int main(void) {
 
 	int framebuffer_fd = open("/dev/fbdev", O_RDWR);
 
-	if (framebuffer_fd == -1) {
+	if (framebuffer_fd < 0) {
 		printf("[!] Failed to find framebuffer\n");
 		return -1;
 	}
 
-	ioctl(framebuffer_fd, 0x1, &framebuffer_info);
+	if (ioctl(framebuffer_fd, FBIOGET_FSCREENINFO, &fix) < 0) {
+		printf("[!] Failed to query framebuffer\n");
+		return -1;
+	}
 
-	if (!framebuffer_info.bpp) {
-		printf("[!] Unusable framebuffer\n");
+	if (ioctl(framebuffer_fd, FBIOGET_VSCREENINFO, &var) < 0) {
+		printf("[!] Failed to query framebuffer\n");
 		return -1;
 	}
 
 	uint32_t *fb = mmap(0,
-						framebuffer_info.height * framebuffer_info.width *
-							framebuffer_info.bpp / 8,
+						fix.line_length * var.yres,
 						PROT_READ | PROT_WRITE, MAP_SHARED, framebuffer_fd, 0);
 
-	memewm_init(fb, framebuffer_info.width, framebuffer_info.height,
-				framebuffer_info.pitch, font, 8, 16);
+	memewm_init(fb, var.xres, var.yres,
+				fix.line_length, font, 8, 16);
 	memewm_window_create("Chalkboard", 30, 30, 800, 400);
 	memewm_refresh();
 	for (;;) {
-		if (read(mouse_fd, &mouse_pack, sizeof(struct mouse_packet)) != -1) {
+		if (read(mouse_fd, &mouse_pack, sizeof(struct mouse_packet)) == sizeof(struct mouse_packet)) {
 			int last_x = 0, last_y = 0, new_x = 0, new_y = 0;
 			int64_t x_mov = 0, y_mov = 0;
 			if (mouse_pack.flags & (1 << 4)) {
