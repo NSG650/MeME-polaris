@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include "memewm.h"
 #include "memewm_glue.h"
 
@@ -10,6 +11,7 @@ typedef struct window_t {
     int y;
     int x_size;
     int y_size;
+    bool is_drawable;
     uint32_t *framebuffer;
     struct window_t *next;
 } window_t;
@@ -592,6 +594,9 @@ void memewm_window_plot_px(int x, int y, uint32_t hex, int window) {
     if (!wptr)
         return;
 
+    if (!wptr->is_drawable)
+        return;
+
     if (x >= wptr->x_size || y >= wptr->y_size || x < 0 || y < 0)
         return;
 
@@ -599,4 +604,13 @@ void memewm_window_plot_px(int x, int y, uint32_t hex, int window) {
     wptr->framebuffer[fb_i] = hex;
     memewm_needs_refresh = 1;
     return;
+}
+
+void memwm_make_window_toggle_drawable(int window) {
+    window_t *wptr = get_window_ptr(window);
+
+    if (!wptr)
+        return;
+
+    wptr->is_drawable = !wptr->is_drawable;
 }

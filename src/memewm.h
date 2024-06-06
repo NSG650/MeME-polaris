@@ -18,6 +18,7 @@ typedef struct {
 int memewm_init(uint32_t *, int, int, int, uint8_t *, int, int);
 
 void memewm_window_plot_px(int, int, uint32_t, int);
+void memwm_make_window_toggle_drawable(int);
 int memewm_window_create(char *, size_t, size_t, size_t, size_t);
 void memewm_window_focus(int);
 void memewm_window_move(int, int, int);

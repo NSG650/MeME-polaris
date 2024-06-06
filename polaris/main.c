@@ -4,14 +4,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/utsname.h>
+#include <sys/sysinfo.h>
 
 #include <errno.h>
 #include <time.h>
 
 #include <linux/fb.h>
+
+#if defined (__x86_64__)
+#include <cpuid.h>
+#endif
+
 
 #include "../src/memewm.h"
 
@@ -27,9 +35,31 @@ void memewm_free(void *addr) {
 
 struct mouse_packet {
 	uint8_t flags;
-	uint8_t x_mov;
-	uint8_t y_mov;
+	int32_t x_mov;
+	int32_t y_mov;
 };
+
+static void window_putc(char c, int x, int y, int window_handle) {
+	x *= 8;
+	y *= 16;
+	uint8_t line;
+	for (uint32_t x_bit = 0; x_bit < 16; x_bit++) {
+		line = font[c * 16 + x_bit];
+		for (uint32_t y_bit = 0; y_bit <= 8; y_bit++) {
+			if (line & (1 << (8 - y_bit - 1))) {
+				memewm_window_plot_px(x + y_bit, y + x_bit, 0xFFFFFF, window_handle);
+			} else if (c == ' ') {
+				memewm_window_plot_px(x + y_bit, y + x_bit, 0x000000, window_handle);
+			}
+		}
+	}
+}
+
+static void window_puts(char *str, int x, int y, int window_handle) {
+	while (*str) {
+		window_putc(*str++, x++, y, window_handle);
+	}
+}
 
 int main(void) {
 	printf("MEME :^)\n");
@@ -62,14 +92,41 @@ int main(void) {
 
 	uint32_t *fb = mmap(0,
 						fix.line_length * var.yres,
-						PROT_READ | PROT_WRITE, MAP_SHARED, framebuffer_fd, 0);
+					 PROT_READ | PROT_WRITE, MAP_SHARED, framebuffer_fd, 0);
 
 	memewm_init(fb, var.xres, var.yres,
 				fix.line_length, font, 8, 16);
+
+	struct utsname uname_buffer = {0};
+
+	char buffer[1024] = {0};
+	uname(&uname_buffer);
+
+	snprintf(buffer, 128, "%s on %s!", uname_buffer.sysname, uname_buffer.machine);
+
+	int sysinfo_window_handle = memewm_window_create(buffer, 15, 20, 640, 480);
+	memset(buffer, 0, 1024);
+
+#if defined (__x86_64__)
+	char cpu_brand_string[64] = {0};
+	__get_cpuid(0x80000002, (uint32_t *)(cpu_brand_string +  0), (uint32_t *)(cpu_brand_string +  4), (uint32_t *)(cpu_brand_string +  8), (uint32_t *)(cpu_brand_string + 12));
+	__get_cpuid(0x80000003, (uint32_t *)(cpu_brand_string + 16), (uint32_t *)(cpu_brand_string + 20), (uint32_t *)(cpu_brand_string + 24), (uint32_t *)(cpu_brand_string + 28));
+	__get_cpuid(0x80000004, (uint32_t *)(cpu_brand_string + 32), (uint32_t *)(cpu_brand_string + 36), (uint32_t *)(cpu_brand_string + 40), (uint32_t *)(cpu_brand_string + 44));
+	const char *p = cpu_brand_string;
+	while (*p == ' ')
+	{
+		++p;
+	}
+#endif
+
+	snprintf(buffer, 128, "%s running on %s!", uname_buffer.sysname, p);
+	window_puts(buffer, 1, 0, sysinfo_window_handle);
+	memwm_make_window_toggle_drawable(sysinfo_window_handle);
+
 	memewm_window_create("Chalkboard", 30, 30, 800, 400);
 	memewm_refresh();
 	for (;;) {
-		if (read(mouse_fd, &mouse_pack, sizeof(struct mouse_packet)) == sizeof(struct mouse_packet)) {
+		if (read(mouse_fd, &mouse_pack, sizeof(struct mouse_packet)) > 0) {
 			int last_x = 0, last_y = 0, new_x = 0, new_y = 0;
 			int64_t x_mov = 0, y_mov = 0;
 			if (mouse_pack.flags & (1 << 4)) {
@@ -84,7 +141,7 @@ int main(void) {
 
 			memewm_get_cursor_pos(&last_x, &last_y);
 			window_click_data_t last_click_data =
-				memewm_window_click(last_x, last_y);
+			memewm_window_click(last_x, last_y);
 			memewm_set_cursor_pos(x_mov, -y_mov);
 			// there was a click!!!
 			if ((mouse_pack.flags & (1 << 0))) {
@@ -122,10 +179,14 @@ int main(void) {
 				if (last_click_data.rel_x != -1 &&
 					last_click_data.rel_y != -1) {
 					memewm_window_focus(id);
-					memewm_window_plot_px(last_click_data.rel_x,
-										  last_click_data.rel_y, 0xffffff, id);
-				}
-				memewm_refresh();
+					for (int i = 0; i < 10; i++) {
+						for (int j = 0; j < 10; j++) {
+							memewm_window_plot_px(last_click_data.rel_x + i,
+									  		last_click_data.rel_y + j, 0xffffff, id);
+						}
+					}
+					}
+					memewm_refresh();
 			}
 		}
 	}
